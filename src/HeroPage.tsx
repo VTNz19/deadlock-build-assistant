@@ -344,7 +344,7 @@ export default function HeroPage({ hero }: { hero: Hero }) {
 
       {ready && (
         <Tabs value={tab} onValueChange={changeTab}>
-          <TabsList variant="line" className="mb-6 h-auto w-full justify-start overflow-x-auto border-b">
+          <TabsList variant="line" className="mb-6 h-auto w-full justify-start overflow-x-auto border-b sm:w-fit">
             <TabsTrigger value="builds">Builds da comunidade</TabsTrigger>
             <TabsTrigger value="stats">Itens mais fortes</TabsTrigger>
             <TabsTrigger value="counters">Contra o inimigo</TabsTrigger>
