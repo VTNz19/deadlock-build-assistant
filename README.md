@@ -4,6 +4,20 @@ Assistente de builds para o jogo **Deadlock**: mostra as builds da comunidade na
 
 > Projeto de fã, não afiliado à Valve. Deadlock e as imagens do jogo pertencem à Valve.
 
+**Site:** https://vtnz19.github.io/deadlock-build-assistant/
+
+![Lista de heróis](docs/screenshots/home.png)
+
+## Como é
+
+**Builds na ordem de compra**, com custo em almas e total acumulado:
+
+![Build de um herói em comanda de compras](docs/screenshots/build.png)
+
+**Composição de times:** analisa os inimigos e adapta a build para a partida.
+
+![Montagem de composição](docs/screenshots/composicao.png)
+
 ## O que faz
 
 - **Builds da comunidade** de cada herói, em uma "comanda de compras": ordem dos itens, custo em almas e total acumulado. A ordem vem da hora média em que os jogadores compram cada item.
