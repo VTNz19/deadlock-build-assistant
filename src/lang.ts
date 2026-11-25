@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { getItems, type Hero, type Item, type Lang } from './api'
+import { getAbilities, getItems, type Ability, type Hero, type Item, type Lang } from './api'
 import { setCurrentLang, tr } from './i18n'
 
 // Idioma do site inteiro: textos da interface e dados do jogo (nomes de heróis e itens, descrições).
@@ -47,21 +47,24 @@ export function localizeHeroes(heroes: Hero[], lang: Lang): Hero[] {
 
 // Ao trocar de idioma, os itens antigos continuam na tela até os novos chegarem.
 // Assim a página não é desmontada e a build, a aba e os filtros escolhidos não se perdem.
-export function useItems(lang: Lang) {
-  const [state, setState] = useState<{ data: Record<number, Item> | null; error: string | null }>({
+export const useItems = (lang: Lang) => useKeptByLang<Record<number, Item>>(getItems, lang)
+export const useAbilities = (lang: Lang) => useKeptByLang<Record<string, Ability>>(getAbilities, lang)
+
+function useKeptByLang<T>(load: (lang: Lang) => Promise<T>, lang: Lang) {
+  const [state, setState] = useState<{ data: T | null; error: string | null }>({
     data: null,
     error: null,
   })
 
   useEffect(() => {
     let alive = true
-    getItems(lang)
+    load(lang)
       .then((data) => alive && setState({ data, error: null }))
       .catch((e: Error) => alive && setState((s) => ({ data: s.data, error: e.message })))
     return () => {
       alive = false
     }
-  }, [lang])
+  }, [load, lang])
 
   return state
 }

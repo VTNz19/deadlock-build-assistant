@@ -13,8 +13,9 @@ import {
   type ItemStat,
   type Lang,
 } from './api'
+import AbilityOrder from './AbilityOrder'
 import CountersTab from './CountersTab'
-import { classLabel, getLang, num, pct, tr, tx } from './i18n'
+import { classLabel, classSummary, getLang, num, pct, tr, tx } from './i18n'
 import { useItems } from './lang'
 import { computeOrder, formatTime } from './order'
 import { fewestMissingFirst, isBuyable, purchases, totalCost, unavailableItems } from './shop'
@@ -92,7 +93,10 @@ function BuildDetail({
         </details>
       )}
 
-      <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+      <AbilityOrder hero={hero} lang={getLang()} authorSteps={build.abilityOrder} />
+
+      <h4 className="mt-8 text-xl">{tr('Itens', 'Items')}</h4>
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
         <ToggleGroup
           type="single"
           variant="outline"
@@ -371,9 +375,12 @@ export default function HeroPage({ hero, heroes, lang }: { hero: Hero; heroes: H
         <div>
           <h1 className="text-4xl sm:text-6xl">{hero.name}</h1>
           {hero.hero_type && (
-            <Badge variant="outline" className="mt-3">
-              {classLabel(hero.hero_type)}
-            </Badge>
+            <>
+              <Badge variant="outline" className="mt-3">
+                {classLabel(hero.hero_type)}
+              </Badge>
+              <p className="mt-2 max-w-md text-sm text-muted-foreground">{classSummary(hero.hero_type)}</p>
+            </>
           )}
         </div>
       </div>

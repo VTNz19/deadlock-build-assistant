@@ -1,3 +1,4 @@
+import { MAX_PER_ABILITY, popularOrder, type OrderRow, type PopularOrder } from './abilities'
 import { PROP_KEYS } from './counters'
 import { getLang, num, tr } from './i18n'
 
@@ -16,6 +17,7 @@ export interface Hero {
   disabled: boolean
   hero_type?: string
   complexity?: number
+  abilityClasses: string[] // as 4 habilidades, na ordem do jogo
   images: {
     icon_hero_card_webp?: string
     icon_image_small_webp?: string
@@ -35,6 +37,12 @@ export interface Item {
   components: number[] // itens que este consome ao ser comprado (é uma melhoria deles)
 }
 
+export interface Ability {
+  id: number
+  name: string
+  image: string
+}
+
 export interface BuildCategory {
   name: string
   position?: number // posição original na build, para chamar de "Grupo N" os grupos sem nome
@@ -49,6 +57,7 @@ export interface Build {
   weeklyFavorites: number | null // null = a API não informou (não é zero)
   favorites: number | null
   categories: BuildCategory[]
+  abilityOrder: number[] // ordem das habilidades do autor (ver abilities.ts); vazia se não informou
 }
 
 export interface ItemStat {
@@ -63,7 +72,17 @@ export interface ItemStat {
 
 const memory = new Map<string, unknown>()
 
-async function cached<T>(key: string, load: () => Promise<T>): Promise<T> {
+const pending = new Map<string, Promise<unknown>>()
+
+function cached<T>(key: string, load: () => Promise<T>): Promise<T> {
+  const running = pending.get(key)
+  if (running) return running as Promise<T>
+  const promise = readOrLoad(key, load).finally(() => pending.delete(key))
+  pending.set(key, promise)
+  return promise
+}
+
+async function readOrLoad<T>(key: string, load: () => Promise<T>): Promise<T> {
   if (memory.has(key)) return memory.get(key) as T
   const storageKey = `dl:v3:${key}`
   try {
@@ -107,9 +126,9 @@ export const normalize = (text: string) => text.normalize('NFD').replace(/\p{Dia
 // Os nomes vêm da tradução oficial do jogo (pt-BR). Guardo também o nome em inglês, porque muita gente
 // conhece os heróis por ele e a busca aceita os dois.
 export function getHeroes(): Promise<Hero[]> {
-  return cached('heroes-i18n', async () => {
+  return cached('heroes-abilities', async () => {
     const [portuguese, english] = await Promise.all([
-      fetchJson<Hero[]>('/v1/assets/heroes?language=brazilian'),
+      fetchJson<(Hero & { items?: Record<string, string> })[]>('/v1/assets/heroes?language=brazilian'),
       fetchJson<Hero[]>('/v1/assets/heroes?language=english'),
     ])
     const englishById = new Map(english.map((h) => [h.id, h.name]))
@@ -127,6 +146,7 @@ export function getHeroes(): Promise<Hero[]> {
           disabled: h.disabled,
           hero_type: h.hero_type,
           complexity: h.complexity,
+          abilityClasses: [1, 2, 3, 4].map((n) => h.items?.[`signature${n}`]).filter((c): c is string => !!c),
           images: {
             icon_hero_card_webp: h.images.icon_hero_card_webp,
             icon_image_small_webp: h.images.icon_image_small_webp,
@@ -181,12 +201,22 @@ function itemDescription(r: RawItem): string {
   return text.length > 260 ? text.slice(0, 257) + '...' : text
 }
 
-export function getItems(lang: Lang): Promise<Record<number, Item>> {
-  return cached(`items2:${lang}`, async () => {
+interface GameData {
+  items: Record<number, Item>
+  abilities: Record<string, Ability> // pela class_name
+}
+
+export const getItems = (lang: Lang) => getGameData(lang).then((d) => d.items)
+export const getAbilities = (lang: Lang) => getGameData(lang).then((d) => d.abilities)
+
+function getGameData(lang: Lang): Promise<GameData> {
+  return cached(`game:${lang}`, async () => {
     const raw = await fetchJson<RawItem[]>(`/v1/assets/items?language=${API_LANGUAGE[lang]}`)
     const out: Record<number, Item> = {}
+    const abilities: Record<string, Ability> = {}
     const idByClass = new Map(raw.map((r) => [r.class_name, r.id]))
     for (const r of raw) {
+      if (r.type === 'ability') abilities[r.class_name] = { id: r.id, name: r.name, image: r.image_webp ?? r.image ?? '' }
       if (r.type !== 'upgrade') continue
       const props: Record<string, number> = {}
       for (const key of PROP_KEYS) {
@@ -206,7 +236,7 @@ export function getItems(lang: Lang): Promise<Record<number, Item>> {
         components: (r.component_items ?? []).map((c) => idByClass.get(c)).filter((id): id is number => id !== undefined),
       }
     }
-    return out
+    return { items: out, abilities }
   })
 }
 
@@ -220,6 +250,7 @@ interface RawBuild {
     name: string
     description: string | null
     details: {
+      ability_order?: { currency_changes?: { ability_id: number; delta: number }[] | null } | null
       mod_categories: {
         name: string
         description: string | null
@@ -252,12 +283,35 @@ function usefulText(text: string | null, ...others: string[]): string {
   return t
 }
 
+function authorAbilityOrder(r: RawBuild): number[] {
+  const used = new Map<number, number>()
+  const steps: number[] = []
+  for (const change of r.hero_build.details.ability_order?.currency_changes ?? []) {
+    const count = used.get(change.ability_id) ?? 0
+    if (change.delta > 0) {
+      // o autor devolveu o ponto: desfaz o último gasto nessa habilidade
+      const last = steps.lastIndexOf(change.ability_id)
+      if (last !== -1) {
+        steps.splice(last, 1)
+        used.set(change.ability_id, count - 1)
+      }
+      continue
+    }
+    // passou do máximo: a lista recomeçou ou está quebrada, e o que vem depois não é confiável
+    if (count >= MAX_PER_ABILITY) break
+    used.set(change.ability_id, count + 1)
+    steps.push(change.ability_id)
+  }
+  return steps
+}
+
 function toBuild(r: RawBuild): Build {
   const cats = r.hero_build.details.mod_categories
   return {
     id: r.hero_build.hero_build_id,
     name: r.hero_build.name,
     description: usefulText(r.hero_build.description, ...cats.map((c) => c.name)),
+    abilityOrder: authorAbilityOrder(r),
     weeklyFavorites: r.num_weekly_favorites,
     favorites: r.num_favorites,
     categories: cats
@@ -290,7 +344,7 @@ export function localizeBuild(build: Build): Build {
 }
 
 export function getBuilds(heroId: number): Promise<Build[]> {
-  return cached(`builds2:${heroId}`, async () => {
+  return cached(`builds4:${heroId}`, async () => {
     // Heróis novos não têm favoritos semanais, então busco as duas listas e junto.
     const base = `/v1/builds?hero_id=${heroId}&language=0&only_latest=true&sort_direction=desc&limit=15`
     const [weekly, total] = await Promise.all([
@@ -356,6 +410,13 @@ export function getEnemyItemStats(heroId: number, enemyId: number): Promise<Item
       avgBuyTimeS: r.avg_buy_time_s,
     }))
   })
+}
+
+// A resposta tem milhares de sequências; guardo só a ordem calculada
+export function getAbilityOrder(heroId: number): Promise<PopularOrder> {
+  return cached(`abilityorder:${heroId}`, async () =>
+    popularOrder(await fetchJson<OrderRow[]>(`/v1/analytics/ability-order-stats?hero_id=${heroId}`)),
+  )
 }
 
 // ---------- ordem de compra montada pela IA ----------

@@ -33,4 +33,29 @@ const CLASS_LABELS: Record<string, Text> = {
   assassin: ['Assassino', 'Assassin'],
   healer: ['Curador', 'Healer'],
 }
+// Resumo escrito para o site (a API só informa a classe de cada herói, não o que ela significa)
+const CLASS_SUMMARIES: Record<string, Text> = {
+  assassin: [
+    'Caça alvos desprevenidos ou isolados: chega rápido, causa muito dano em pouco tempo e escapa.',
+    'Hunts unaware or isolated targets: gets in fast, deals a lot of damage quickly and gets out.',
+  ],
+  brawler: [
+    'Linha de frente: avança para lutar de perto, aguenta bastante dano e puxa a briga.',
+    'Frontline: pushes in to fight up close, soaks up a lot of damage and starts fights.',
+  ],
+  healer: [
+    'Apoia a equipe: cura ou protege os aliados e ajuda a virar as lutas em grupo.',
+    'Supports the team: heals or protects allies and helps turn team fights.',
+  ],
+  marksman: [
+    'Depende da mira e do posicionamento: o forte é causar dano com disparos, de preferência sem se expor.',
+    'Relies on aim and positioning: excels at dealing damage with shots, ideally without being exposed.',
+  ],
+  mystic: [
+    'Se apoia nas habilidades: causa dano com poderes, controla áreas e atrapalha os inimigos.',
+    'Relies on abilities: deals damage with powers, controls areas and disrupts enemies.',
+  ],
+}
+export const classSummary = (type: string | undefined) => (type && CLASS_SUMMARIES[type] ? tx(CLASS_SUMMARIES[type]) : '')
+
 export const classLabel = (type: string | undefined) => (type && CLASS_LABELS[type] ? tx(CLASS_LABELS[type]) : (type ?? ''))

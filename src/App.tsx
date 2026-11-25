@@ -3,7 +3,7 @@ import { Search } from 'lucide-react'
 import { getHeroes, normalize, type Hero, type Lang } from './api'
 import CompPage from './CompPage'
 import HeroPage from './HeroPage'
-import { classLabel, tr } from './i18n'
+import { classLabel, classSummary, tr } from './i18n'
 import { localizeHeroes, useLang } from './lang'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -47,6 +47,36 @@ function HeroGrid({ heroes }: { heroes: Hero[] }) {
           )}
         </p>
       </div>
+
+      <section className="mb-8" aria-labelledby="class-guide">
+        <h2 id="class-guide" className="text-xl">
+          {tr('O que cada classe faz', 'What each class does')}
+        </h2>
+        <p className="mt-1 mb-3 text-sm text-muted-foreground">
+          {tr(
+            'Resumo geral: cada herói tem o seu jeito de jogar. Clique em uma classe para ver os heróis dela.',
+            'General summary: each hero has their own playstyle. Click a class to see its heroes.',
+          )}
+        </p>
+        <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          {types.map((t) => (
+            <li key={t}>
+              <button
+                type="button"
+                aria-pressed={type === t}
+                onClick={() => setType(type === t ? 'all' : t)}
+                className={cn(
+                  'flex h-full w-full flex-col items-start justify-start rounded-lg border bg-card px-4 py-3 text-left transition-colors hover:border-primary',
+                  type === t && 'border-primary bg-accent',
+                )}
+              >
+                <span className="font-heading text-lg leading-tight text-primary">{classLabel(t)}</span>
+                <span className="mt-1 text-sm text-muted-foreground">{classSummary(t)}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      </section>
 
       <div className="mb-6 flex flex-wrap items-center gap-3">
         <div className="relative w-full sm:w-72">

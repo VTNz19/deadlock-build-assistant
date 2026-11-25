@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { X } from 'lucide-react'
+import AbilityOrder from './AbilityOrder'
 import { getBuilds, localizeBuild, popularity, type Hero, type Lang } from './api'
 import { classLabel, pp, tr } from './i18n'
 import { loadComp, makePlan, pickDefaultBuild, summarizeEnemies, teamNotes, type CompData } from './comp'
@@ -291,6 +292,10 @@ export default function CompPage({ heroes, lang }: { heroes: Hero[]; lang: Lang 
                       </SelectContent>
                     </Select>
                   </div>
+
+                  {meHero && builds[buildIdx] && (
+                    <AbilityOrder key={builds[buildIdx].id} hero={meHero} lang={lang} authorSteps={builds[buildIdx].abilityOrder} />
+                  )}
 
                   {gone && gone.count > 0 && (
                     <p className="mt-4 max-w-prose rounded-md border-l-2 border-destructive bg-card px-4 py-2.5 text-sm">
