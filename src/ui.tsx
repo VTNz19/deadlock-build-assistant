@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
+import { TriangleAlert } from 'lucide-react'
 import type { BuildOrder, Item } from './api'
 import { num, tr, tx, type Text } from './i18n'
 import { purchases, totalCost } from './shop'
@@ -85,6 +86,33 @@ export function ItemChip({ item }: { item: Item | undefined }) {
   )
 }
 
+// Item que a build cita mas não existe mais na loja. `item` fica vazio quando a API nem o conhece.
+export function GoneItem({ item }: { item: Item | undefined }) {
+  const name = item && !item.name.startsWith('upgrade_') ? item.name : tr('Item desconhecido', 'Unknown item')
+  const warning = tr('Este item não existe mais na loja', 'This item is no longer in the shop')
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          tabIndex={0}
+          className="inline-flex items-center gap-2 rounded-md border border-dashed border-soul bg-card py-1 pr-3 pl-1 text-sm"
+        >
+          {item ? (
+            <ItemIcon item={item} className="size-8 opacity-50 grayscale" />
+          ) : (
+            <span className="size-8 shrink-0 rounded-md bg-muted" />
+          )}
+          <span className="text-muted-foreground line-through">{name}</span>
+          <TriangleAlert className="size-4 shrink-0 text-soul" role="img" aria-label={warning} />
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="max-w-xs p-3 text-left">
+        {warning}
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+
 // ---------- comanda de compras ----------
 // A ordem de compra como uma comanda: cada linha mostra o custo do item e o total de almas gasto até ali.
 
@@ -98,10 +126,12 @@ export function OrderLedger({
   order,
   items,
   badges,
+  gone = [],
 }: {
   order: BuildOrder
   items: Record<number, Item>
   badges?: Map<number, string>
+  gone?: number[] // itens da build que não existem mais: aparecem no fim, fora da ordem e do custo
 }) {
   const steps = order.steps.filter((s) => items[s.itemId])
   const bought = purchases(steps.map((s) => s.itemId), items)
@@ -173,6 +203,27 @@ export function OrderLedger({
           )
         })}
       </ol>
+      {gone.length > 0 && (
+        <div className="border-t px-4 py-3">
+          <h4 className="flex items-center gap-2 font-heading text-lg text-soul">
+            <TriangleAlert className="size-4" aria-hidden="true" />
+            {tr('Não existem mais na loja', 'No longer in the shop')}
+          </h4>
+          <p className="text-sm text-muted-foreground">
+            {tr(
+              'Estavam na build do autor. Não entram na ordem de compra nem no custo.',
+              "They were in the author's build. They are not part of the purchase order or the cost.",
+            )}
+          </p>
+          <ul className="mt-2 flex flex-wrap gap-2">
+            {gone.map((id) => (
+              <li key={id}>
+                <GoneItem item={items[id]} />
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   )
 }

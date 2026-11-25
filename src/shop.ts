@@ -1,4 +1,4 @@
-import type { Item } from './api'
+import type { Build, Item } from './api'
 
 // Itens que a build cita mas não dá mais para comprar (removidos do jogo ou desconhecidos pela API)
 export const isBuyable = (items: Record<number, Item>, id: number) => items[id]?.shopable === true
@@ -6,11 +6,22 @@ export const isBuyable = (items: Record<number, Item>, id: number) => items[id]?
 export function unavailableItems(ids: number[], items: Record<number, Item>) {
   const unique = [...new Set(ids)].filter((id) => !isBuyable(items, id))
   return {
+    ids: unique,
     count: unique.length,
     // alguns itens removidos não têm nome traduzido (vem o código interno, "upgrade_...")
     names: unique.map((id) => items[id]?.name).filter((n): n is string => !!n && !n.startsWith('upgrade_')),
   }
 }
+
+export const missingCount = (build: Build, items: Record<number, Item>) =>
+  unavailableItems(
+    build.categories.flatMap((c) => c.itemIds),
+    items,
+  ).count
+
+// Quanto menos itens fora da loja, mais alto. No empate, a ordem (por popularidade) não muda.
+export const fewestMissingFirst = (builds: Build[], items: Record<number, Item>) =>
+  [...builds].sort((a, b) => missingCount(a, items) - missingCount(b, items))
 
 export interface Purchase {
   id: number

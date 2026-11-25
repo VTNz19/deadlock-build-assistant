@@ -17,8 +17,8 @@ import CountersTab from './CountersTab'
 import { classLabel, getLang, num, pct, tr, tx } from './i18n'
 import { useItems } from './lang'
 import { computeOrder, formatTime } from './order'
-import { isBuyable, purchases, totalCost, unavailableItems } from './shop'
-import { ItemChip, OrderLedger, SLOT, useAsync } from './ui'
+import { fewestMissingFirst, isBuyable, purchases, totalCost, unavailableItems } from './shop'
+import { GoneItem, ItemChip, OrderLedger, SLOT, useAsync } from './ui'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -136,7 +136,7 @@ function BuildDetail({
                     "It's an approximation: the best time to buy changes with your game.",
                   )}`}
             </p>
-            <OrderLedger order={aiOrder ?? order} items={items} />
+            <OrderLedger order={aiOrder ?? order} items={items} gone={gone.ids} />
           </>
         ) : (
           <div className="space-y-6">
@@ -145,11 +145,9 @@ function BuildDetail({
                 <h4 className="text-lg text-primary">{c.name}</h4>
                 {c.description && <p className="text-sm text-muted-foreground">{c.description}</p>}
                 <div className="mt-2 flex flex-wrap items-center gap-y-2">
-                  {c.itemIds
-                    .filter((id) => isBuyable(items, id))
-                    .map((id, j, list) => (
+                  {c.itemIds.map((id, j, list) => (
                       <span key={`${id}-${j}`} className="inline-flex items-center">
-                        <ItemChip item={items[id]} />
+                        {isBuyable(items, id) ? <ItemChip item={items[id]} /> : <GoneItem item={items[id]} />}
                         {j < list.length - 1 && <ChevronRight className="mx-1 size-4 text-primary" aria-hidden="true" />}
                       </span>
                     ))}
@@ -166,7 +164,7 @@ function BuildDetail({
 function BuildsTab({ hero, items, stats }: { hero: Hero; items: Record<number, Item>; stats: ItemStat[] }) {
   const { data: rawBuilds, error, loading } = useAsync(() => getBuilds(hero.id), [hero.id])
   const lang = getLang()
-  const builds = useMemo(() => rawBuilds?.map(localizeBuild), [rawBuilds, lang])
+  const builds = useMemo(() => rawBuilds && fewestMissingFirst(rawBuilds.map(localizeBuild), items), [rawBuilds, items, lang])
   const [selected, setSelected] = useState(0)
   const [aiReady, setAiReady] = useState(false)
 

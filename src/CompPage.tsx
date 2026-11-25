@@ -4,7 +4,7 @@ import { getBuilds, localizeBuild, popularity, type Hero, type Lang } from './ap
 import { classLabel, pp, tr } from './i18n'
 import { loadComp, makePlan, pickDefaultBuild, summarizeEnemies, teamNotes, type CompData } from './comp'
 import { useItems } from './lang'
-import { unavailableItems } from './shop'
+import { fewestMissingFirst, missingCount, unavailableItems } from './shop'
 import { OrderLedger, useAsync } from './ui'
 import { HeroAvatar, HeroCombobox } from '@/components/HeroCombobox'
 import { Badge } from '@/components/ui/badge'
@@ -192,9 +192,18 @@ export default function CompPage({ heroes, lang }: { heroes: Hero[]; lang: Lang 
     [items, me, enemies.join(',')],
   )
   const { data: rawBuilds } = useAsync(() => (meHero ? getBuilds(meHero.id) : Promise.resolve([])), [me])
-  const builds = useMemo(() => rawBuilds?.map(localizeBuild), [rawBuilds, lang])
+  const builds = useMemo(() => {
+    const list = rawBuilds?.map(localizeBuild)
+    return list && items ? fewestMissingFirst(list, items) : list
+  }, [rawBuilds, items, lang])
 
-  const buildIdx = builds && builds.length > 0 ? Math.min(buildChoice ?? pickDefaultBuild(builds), builds.length - 1) : 0
+  // a build sugerida sai das que têm menos itens faltando (a lista já vem nessa ordem)
+  const candidates =
+    builds && builds.length > 0 && items
+      ? builds.filter((b) => missingCount(b, items) === missingCount(builds[0], items))
+      : (builds ?? [])
+  const suggested = candidates.length > 0 ? builds!.indexOf(candidates[pickDefaultBuild(candidates)]) : 0
+  const buildIdx = builds && builds.length > 0 ? Math.min(buildChoice ?? suggested, builds.length - 1) : 0
   const summary = useMemo(() => (comp ? summarizeEnemies(comp.enemies) : null), [comp])
   const plan = useMemo(
     () => (comp && summary && items && builds && builds[buildIdx] ? makePlan(comp, summary, builds[buildIdx], items) : null),
@@ -325,7 +334,7 @@ export default function CompPage({ heroes, lang }: { heroes: Hero[]; lang: Lang 
                           "were added because of the detected threats or because they do well against this team. It's a suggestion based on statistics, not a guarantee.",
                         )}
                       </p>
-                      <OrderLedger order={plan.order} items={items} badges={plan.picks} />
+                      <OrderLedger order={plan.order} items={items} badges={plan.picks} gone={gone?.ids} />
                     </div>
                   )}
                 </>
