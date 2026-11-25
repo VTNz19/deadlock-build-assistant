@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react'
-import { getEnemyItemStats, getHeroes, type Hero, type Item, type ItemStat } from './api'
+import { getEnemyItemStats, type Hero, type Item, type ItemStat } from './api'
 import { THREATS, findCounters, type CounterItem, type ThreatId } from './counters'
 import { computeMatchup, type MatchupRow } from './matchup'
-import { ItemChip, pct, pp, souls, useAsync } from './ui'
+import { dec, num, pct, pp, tr, tx } from './i18n'
+import { ItemChip, useAsync } from './ui'
 import { HeroCombobox } from '@/components/HeroCombobox'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -33,8 +34,8 @@ function ThreatSection({ items, stats }: { items: Record<number, Item>; stats: I
 
   return (
     <section>
-      <h2 className="text-2xl">O que está te incomodando?</h2>
-      <p className="mt-1 text-muted-foreground">Escolha e veja os itens que resolvem.</p>
+      <h2 className="text-2xl">{tr('O que está te incomodando?', "What's giving you trouble?")}</h2>
+      <p className="mt-1 text-muted-foreground">{tr('Escolha e veja os itens que resolvem.', 'Pick one to see the items that solve it.')}</p>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {THREATS.map((t) => (
@@ -48,8 +49,8 @@ function ThreatSection({ items, stats }: { items: Record<number, Item>; stats: I
               t.id === threatId && 'border-primary bg-accent',
             )}
           >
-            <span className="block font-heading text-lg leading-tight">{t.label}</span>
-            <span className="mt-1 block text-sm text-muted-foreground">{t.hint}</span>
+            <span className="block font-heading text-lg leading-tight">{tx(t.label)}</span>
+            <span className="mt-1 block text-sm text-muted-foreground">{tx(t.hint)}</span>
           </button>
         ))}
       </div>
@@ -58,22 +59,25 @@ function ThreatSection({ items, stats }: { items: Record<number, Item>; stats: I
         <div className="mt-6">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-muted-foreground">
-              {list.length} itens. Alguns efeitos são condicionais (ativos, ou só com pouca vida): leia a descrição.
+              {tr(
+                `${list.length} itens. Alguns efeitos são condicionais (ativos, ou só com pouca vida): leia a descrição.`,
+                `${list.length} items. Some effects are conditional (actives, or only at low health): read the description.`,
+              )}
             </p>
             <Select value={sort} onValueChange={(v) => setSort(v as typeof sort)}>
-              <SelectTrigger className="w-64" aria-label="Ordenar por">
+              <SelectTrigger className="w-64" aria-label={tr('Ordenar por', 'Sort by')}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="strength">Efeito mais forte</SelectItem>
-                <SelectItem value="winRate">Taxa de vitória com este herói</SelectItem>
-                <SelectItem value="cost">Mais barato</SelectItem>
+                <SelectItem value="strength">{tr('Efeito mais forte', 'Strongest effect')}</SelectItem>
+                <SelectItem value="winRate">{tr('Taxa de vitória com este herói', 'Win rate on this hero')}</SelectItem>
+                <SelectItem value="cost">{tr('Mais barato', 'Cheapest')}</SelectItem>
               </SelectContent>
             </Select>
           </div>
 
           {list.length === 0 ? (
-            <p className="text-muted-foreground">Nenhum item encontrado para esta ameaça.</p>
+            <p className="text-muted-foreground">{tr('Nenhum item encontrado para esta ameaça.', 'No items found for this threat.')}</p>
           ) : (
             <ul className="divide-y overflow-hidden rounded-lg border bg-card">
               {list.map(({ item, effects, stat }) => (
@@ -91,10 +95,10 @@ function ThreatSection({ items, stats }: { items: Record<number, Item>; stats: I
                         <span className={cn('block tabular-nums', stat.winRate >= 0.5 ? 'text-good' : 'text-destructive')}>
                           {pct(stat.winRate)}
                         </span>
-                        <span className="text-xs text-muted-foreground">{souls(stat.matches)} partidas</span>
+                        <span className="text-xs text-muted-foreground">{num(stat.matches)} {tr('partidas', 'matches')}</span>
                       </>
                     ) : (
-                      <span className="text-muted-foreground">poucos dados</span>
+                      <span className="text-muted-foreground">{tr('poucos dados', 'little data')}</span>
                     )}
                   </div>
                 </li>
@@ -116,15 +120,15 @@ function MatchupTable({ rows }: { rows: MatchupRow[] }) {
         <thead className="border-b bg-muted text-left text-muted-foreground">
           <tr>
             <th className="px-4 py-2.5 font-medium">Item</th>
-            <th className="px-4 py-2.5 font-medium">Diferença</th>
-            <th className="px-4 py-2.5 text-right font-medium">Contra ele</th>
+            <th className="px-4 py-2.5 font-medium">{tr('Diferença', 'Difference')}</th>
+            <th className="px-4 py-2.5 text-right font-medium">{tr('Contra ele', 'Vs. this hero')}</th>
             <th
               className="px-4 py-2.5 text-right font-medium"
-              title="Taxa geral do item mais o efeito do confronto"
+              title={tr('Taxa geral do item mais o efeito do confronto', "The item's overall win rate plus the matchup effect")}
             >
-              Esperado
+              {tr('Esperado', 'Expected')}
             </th>
-            <th className="px-4 py-2.5 text-right font-medium">Partidas</th>
+            <th className="px-4 py-2.5 text-right font-medium">{tr('Partidas', 'Matches')}</th>
           </tr>
         </thead>
         <tbody>
@@ -136,14 +140,14 @@ function MatchupTable({ rows }: { rows: MatchupRow[] }) {
               <td className="px-4 py-2">
                 <span className={cn('tabular-nums', r.delta >= 0 ? 'text-good' : 'text-destructive')}>{pp(r.delta)}</span>
                 {r.reliable && (
-                  <Badge variant="outline" className="ml-2 text-good" title="A diferença é maior do que o ruído esperado para essa amostra">
-                    confiável
+                  <Badge variant="outline" className="ml-2 text-good" title={tr('A diferença é maior do que o ruído esperado para essa amostra', 'The difference is larger than the noise expected for this sample')}>
+                    {tr('confiável', 'reliable')}
                   </Badge>
                 )}
               </td>
               <td className="px-4 py-2 text-right tabular-nums">{pct(r.vs.winRate)}</td>
               <td className="px-4 py-2 text-right text-muted-foreground tabular-nums">{pct(r.expected)}</td>
-              <td className="px-4 py-2 text-right tabular-nums">{souls(r.vs.matches)}</td>
+              <td className="px-4 py-2 text-right tabular-nums">{num(r.vs.matches)}</td>
             </tr>
           ))}
         </tbody>
@@ -182,26 +186,29 @@ function EnemySection({
 
   return (
     <section>
-      <h2 className="text-2xl">Contra quem?</h2>
+      <h2 className="text-2xl">{tr('Contra quem?', 'Against whom?')}</h2>
       <p className="mt-1 max-w-prose text-muted-foreground">
-        Escolha o herói inimigo e veja quais itens do {hero.name} vão melhor ou pior contra ele.
+        {tr(
+          `Escolha o herói inimigo e veja quais itens do ${hero.name} vão melhor ou pior contra ele.`,
+          `Pick an enemy hero to see which ${hero.name} items do better or worse against them.`,
+        )}
       </p>
 
       <div className="mt-4 flex flex-wrap items-end gap-4">
         <div className="grid w-64 gap-1.5">
-          <span className="text-xs text-muted-foreground">Herói inimigo</span>
-          <HeroCombobox heroes={heroes} value={enemyId} placeholder="Escolher herói" onSelect={setEnemyId} />
+          <span className="text-xs text-muted-foreground">{tr('Herói inimigo', 'Enemy hero')}</span>
+          <HeroCombobox heroes={heroes} value={enemyId} placeholder={tr('Escolher herói', 'Choose a hero')} onSelect={setEnemyId} />
         </div>
         <div className="grid gap-1.5">
-          <span className="text-xs text-muted-foreground">Mínimo de partidas</span>
+          <span className="text-xs text-muted-foreground">{tr('Mínimo de partidas', 'Minimum matches')}</span>
           <Select value={String(minMatches)} onValueChange={(v) => setMinMatches(Number(v))}>
-            <SelectTrigger className="w-36" aria-label="Mínimo de partidas">
+            <SelectTrigger className="w-36" aria-label={tr('Mínimo de partidas', 'Minimum matches')}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
               {[50, 200, 500, 1000].map((n) => (
                 <SelectItem key={n} value={String(n)}>
-                  {souls(n)}
+                  {num(n)}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -212,36 +219,42 @@ function EnemySection({
       {enemyId !== null && loading && <Skeleton className="mt-6 h-48" aria-busy="true" />}
       {error && <p className="mt-4 text-destructive">{error}</p>}
       {enemyId !== null && !loading && !error && rows.length === 0 && (
-        <p className="mt-4 text-muted-foreground">Poucas partidas deste confronto. Reduza o mínimo de partidas.</p>
+        <p className="mt-4 text-muted-foreground">
+          {tr('Poucas partidas deste confronto. Reduza o mínimo de partidas.', 'Too few matches for this matchup. Lower the minimum matches.')}
+        </p>
       )}
 
       {rows.length > 0 && Math.abs(shift) >= 0.01 && (
         <p className="mt-6 max-w-prose rounded-md border-l-2 border-primary bg-card px-4 py-3 text-sm">
-          Contra {enemy?.name}, o {hero.name} costuma render{' '}
+          {tr(`Contra ${enemy?.name}, o ${hero.name} costuma render`, `Against ${enemy?.name}, ${hero.name} usually performs`)}{' '}
           <strong>
-            {(Math.abs(shift) * 100).toFixed(1).replace('.', ',')} p.p. {shift < 0 ? 'a menos' : 'a mais'}
+            {dec(Math.abs(shift) * 100)} {tr('p.p.', 'pp')} {shift < 0 ? tr('a menos', 'worse') : tr('a mais', 'better')}
           </strong>{' '}
-          em geral. Isso afeta todos os itens, então cada um é comparado com esse nível: o que importa é quem se destaca
-          dentro do confronto.
+          {tr(
+            'em geral. Isso afeta todos os itens, então cada um é comparado com esse nível: o que importa é quem se destaca dentro do confronto.',
+            'overall. This affects every item, so each one is compared against that level: what matters is which items stand out within the matchup.',
+          )}
         </p>
       )}
 
       {best.length > 0 && (
         <div className="mt-6">
-          <h3 className="mb-2 text-xl text-good">Funcionam melhor contra {enemy?.name}</h3>
+          <h3 className="mb-2 text-xl text-good">{tr('Funcionam melhor contra', 'Work better against')} {enemy?.name}</h3>
           <MatchupTable rows={best} />
         </div>
       )}
       {worst.length > 0 && (
         <div className="mt-6">
-          <h3 className="mb-2 text-xl text-destructive">Funcionam pior contra {enemy?.name}</h3>
+          <h3 className="mb-2 text-xl text-destructive">{tr('Funcionam pior contra', 'Work worse against')} {enemy?.name}</h3>
           <MatchupTable rows={worst} />
         </div>
       )}
       {rows.length > 0 && (
         <p className="mt-4 max-w-prose text-sm text-muted-foreground">
-          p.p. = pontos percentuais. Isto mostra correlação, não causa: quem compra um item contra um herói pode já estar
-          ganhando ou perdendo. Prefira os itens confiáveis e com muitas partidas.
+          {tr(
+            'p.p. = pontos percentuais. Isto mostra correlação, não causa: quem compra um item contra um herói pode já estar ganhando ou perdendo. Prefira os itens confiáveis e com muitas partidas.',
+            'pp = percentage points. This shows correlation, not cause: players who buy an item against a hero may already be winning or losing. Prefer reliable items with many matches.',
+          )}
         </p>
       )}
     </section>
@@ -252,19 +265,19 @@ function EnemySection({
 
 export default function CountersTab({
   hero,
+  heroes,
   items,
   stats,
 }: {
   hero: Hero
+  heroes: Hero[]
   items: Record<number, Item>
   stats: ItemStat[]
 }) {
-  const { data: heroes } = useAsync(getHeroes, [])
-
   return (
     <div className="space-y-12">
       <ThreatSection items={items} stats={stats} />
-      {heroes ? <EnemySection hero={hero} items={items} stats={stats} heroes={heroes} /> : <Skeleton className="h-32" />}
+      <EnemySection hero={hero} items={items} stats={stats} heroes={heroes} />
     </div>
   )
 }

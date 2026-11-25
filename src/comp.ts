@@ -10,6 +10,7 @@ import {
 import { THREATS, findCounters, type CounterItem, type ThreatId } from './counters'
 import { computeMatchup } from './matchup'
 import { computeOrder, phaseFromName } from './order'
+import { pp, tr, tx, type Text } from './i18n'
 
 // ---------- 1) dados pesados (chamadas à API) ----------
 
@@ -118,20 +119,39 @@ export function summarizeEnemies(enemies: EnemyInfo[]): EnemySummary {
   const spirit = known.length > 0 ? known.reduce((a, b) => a + b, 0) / known.length : null
   const brawlers = enemies.filter((e) => e.hero.hero_type === 'brawler').length
   const healers = enemies.filter((e) => e.hero.hero_type === 'healer').length
-  const label = (id: ThreatId) => THREATS.find((t) => t.id === id)!.label
+  const label = (id: ThreatId) => tx(THREATS.find((t) => t.id === id)!.label)
 
   const threats: ThreatInfo[] = []
   if (spirit !== null) {
     const sp = Math.round(spirit * 100)
     if (spirit >= 0.45)
-      threats.push({ id: 'spirit', label: label('spirit'), why: `~${sp}% do dano estimado do time é de habilidades` })
+      threats.push({
+        id: 'spirit',
+        label: label('spirit'),
+        why: tr(`~${sp}% do dano estimado do time é de habilidades`, `~${sp}% of the team's estimated damage is from abilities`),
+      })
     if (spirit <= 0.55)
-      threats.push({ id: 'bullet', label: label('bullet'), why: `~${100 - sp}% do dano estimado do time é de disparo` })
+      threats.push({
+        id: 'bullet',
+        label: label('bullet'),
+        why: tr(`~${100 - sp}% do dano estimado do time é de disparo`, `~${100 - sp}% of the team's estimated damage is from bullets`),
+      })
   }
   if (brawlers >= 2)
-    threats.push({ id: 'tank', label: label('tank'), why: `${brawlers} heróis de linha de frente (brawlers)` })
+    threats.push({
+      id: 'tank',
+      label: label('tank'),
+      why: tr(`${brawlers} heróis de linha de frente (lutadores)`, `${brawlers} frontline heroes (brawlers)`),
+    })
   if (healers >= 1)
-    threats.push({ id: 'heal', label: label('heal'), why: `${healers} curador${healers > 1 ? 'es' : ''} no time` })
+    threats.push({
+      id: 'heal',
+      label: label('heal'),
+      why: tr(
+        `${healers} curador${healers > 1 ? 'es' : ''} no time`,
+        `${healers} healer${healers > 1 ? 's' : ''} on the team`,
+      ),
+    })
   return { spirit, brawlers, healers, threats }
 }
 
@@ -140,9 +160,19 @@ export function teamNotes(me: Hero, allies: Hero[]): string[] {
   if (team.length < 3) return []
   const count = (t: string) => team.filter((h) => h.hero_type === t).length
   const notes: string[] = []
-  if (count('healer') === 0) notes.push('Seu time não tem curador: o sustain vai ter que vir dos itens.')
-  if (count('brawler') === 0) notes.push('Seu time não tem herói de linha de frente (brawler): cuidado com quem avança.')
-  if (count('marksman') + count('assassin') === 0) notes.push('Seu time tem pouco dano à distância ou de explosão.')
+  if (count('healer') === 0)
+    notes.push(
+      tr('Seu time não tem curador: o sustain vai ter que vir dos itens.', 'Your team has no healer: sustain will have to come from items.'),
+    )
+  if (count('brawler') === 0)
+    notes.push(
+      tr(
+        'Seu time não tem herói de linha de frente (lutador): cuidado com quem avança.',
+        'Your team has no frontline hero (brawler): be careful about who pushes forward.',
+      ),
+    )
+  if (count('marksman') + count('assassin') === 0)
+    notes.push(tr('Seu time tem pouco dano à distância ou de explosão.', 'Your team is low on ranged or burst damage.'))
   return notes
 }
 
@@ -155,15 +185,17 @@ export interface Plan {
   removed: { item: Item; delta: number }[] // itens da build que rendem pior contra este time
 }
 
-const PHASE_NAMES = ['Início do jogo', 'Meio do jogo', 'Fim do jogo']
+const PHASE_NAMES: Text[] = [
+  ['Início do jogo', 'Early game'],
+  ['Meio do jogo', 'Mid game'],
+  ['Fim do jogo', 'Late game'],
+]
 
 function phaseOf(item: Item, base: Map<number, ItemStat>): number {
   const t = base.get(item.id)?.avgBuyTimeS
   if (t !== undefined) return t < 720 ? 0 : t < 1500 ? 1 : 2
   return item.tier <= 1 ? 0 : item.tier === 2 ? 1 : 2
 }
-
-const pp = (x: number) => `${x >= 0 ? '+' : ''}${(x * 100).toFixed(1).replace('.', ',')} p.p.`
 
 export function makePlan(
   data: CompData,
@@ -198,7 +230,7 @@ export function makePlan(
     const perThreat = summary.threats.length <= 2 ? 2 : 1
     for (const c of counters.slice(0, perThreat)) {
       if (picks.size >= 4) break
-      picks.set(c.item.id, `Contra ${t.label.toLowerCase()}: ${c.effects[0]}`)
+      picks.set(c.item.id, `${tr('Contra', 'Counters')} ${t.label.toLowerCase()}: ${c.effects[0]}`)
     }
   }
 
@@ -207,12 +239,13 @@ export function makePlan(
     .filter(([id, c]) => c.reliable && c.delta >= 0.02 && items[id]?.shopable && !inBuild.has(id) && !picks.has(id))
     .sort((a, b) => b[1].delta - a[1].delta)
     .slice(0, 2)
-  for (const [id, c] of extras) picks.set(id, `Rende ${pp(c.delta)} contra este time (pelos dados)`)
+  for (const [id, c] of extras)
+    picks.set(id, tr(`Rende ${pp(c.delta)} contra este time (pelos dados)`, `${pp(c.delta)} against this team (from match data)`))
 
   // monta a build adaptada: tira os piores e põe os novos na fase em que costumam ser comprados
   const categories = build.categories.map((c) => ({ ...c, itemIds: c.itemIds.filter((id) => !removedIds.has(id)) }))
   for (const id of picks.keys()) {
-    const name = PHASE_NAMES[phaseOf(items[id], baseById)]
+    const name = tx(PHASE_NAMES[phaseOf(items[id], baseById)])
     const cat = categories.find((c) => c.name === name)
     if (cat) cat.itemIds = [...cat.itemIds, id]
     else categories.push({ name, description: '', itemIds: [id] })

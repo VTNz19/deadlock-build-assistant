@@ -1,10 +1,16 @@
 import { PROP_KEYS } from './counters'
+import { getLang, num, tr } from './i18n'
 
 const BASE = 'https://api.deadlock-api.com'
 
+export type Lang = 'pt' | 'en'
+const API_LANGUAGE: Record<Lang, string> = { pt: 'brazilian', en: 'english' }
+
 export interface Hero {
   id: number
-  name: string
+  name: string // no idioma escolhido
+  portugueseName: string // tradução oficial do jogo
+  englishName: string
   class_name: string
   player_selectable: boolean
   disabled: boolean
@@ -26,10 +32,12 @@ export interface Item {
   shopable: boolean
   desc: string // texto do efeito, sem HTML
   props: Record<string, number> // só as propriedades usadas em counters.ts
+  components: number[] // itens que este consome ao ser comprado (é uma melhoria deles)
 }
 
 export interface BuildCategory {
   name: string
+  position?: number // posição original na build, para chamar de "Grupo N" os grupos sem nome
   description: string
   itemIds: number[]
 }
@@ -38,8 +46,8 @@ export interface Build {
   id: number
   name: string
   description: string
-  weeklyFavorites: number
-  favorites: number
+  weeklyFavorites: number | null // null = a API não informou (não é zero)
+  favorites: number | null
   categories: BuildCategory[]
 }
 
@@ -81,19 +89,51 @@ async function cached<T>(key: string, load: () => Promise<T>): Promise<T> {
 async function fetchJson<T>(path: string): Promise<T> {
   const res = await fetch(BASE + path)
   if (res.status === 503 || res.status === 429)
-    throw new Error('A API de dados está ocupada agora. Tente de novo em alguns segundos.')
-  if (!res.ok) throw new Error(`API respondeu ${res.status} em ${path}`)
+    throw new Error(
+      tr(
+        'A API de dados está ocupada agora. Tente de novo em alguns segundos.',
+        'The data API is busy right now. Try again in a few seconds.',
+      ),
+    )
+  if (!res.ok) throw new Error(tr(`API respondeu ${res.status} em ${path}`, `API returned ${res.status} for ${path}`))
   return (await res.json()) as T
 }
 
 // ---------- heróis ----------
 
+// Para a busca: ignora acentos e maiúsculas ("dinamo" acha "Dínamo")
+export const normalize = (text: string) => text.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase()
+
+// Os nomes vêm da tradução oficial do jogo (pt-BR). Guardo também o nome em inglês, porque muita gente
+// conhece os heróis por ele e a busca aceita os dois.
 export function getHeroes(): Promise<Hero[]> {
-  return cached('heroes', async () => {
-    const all = await fetchJson<Hero[]>('/v1/assets/heroes')
-    return all
+  return cached('heroes-i18n', async () => {
+    const [portuguese, english] = await Promise.all([
+      fetchJson<Hero[]>('/v1/assets/heroes?language=brazilian'),
+      fetchJson<Hero[]>('/v1/assets/heroes?language=english'),
+    ])
+    const englishById = new Map(english.map((h) => [h.id, h.name]))
+    return portuguese
       .filter((h) => h.player_selectable && !h.disabled)
-      .sort((a, b) => a.name.localeCompare(b.name))
+      .map(
+        (h): Hero => ({
+          // só os campos usados: a resposta completa é grande demais para o cache do navegador
+          id: h.id,
+          name: h.name,
+          portugueseName: h.name,
+          englishName: englishById.get(h.id) ?? h.name,
+          class_name: h.class_name,
+          player_selectable: h.player_selectable,
+          disabled: h.disabled,
+          hero_type: h.hero_type,
+          complexity: h.complexity,
+          images: {
+            icon_hero_card_webp: h.images.icon_hero_card_webp,
+            icon_image_small_webp: h.images.icon_image_small_webp,
+          },
+        }),
+      )
+      .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
   })
 }
 
@@ -103,6 +143,8 @@ interface RawItem {
   type: string
   id: number
   name: string
+  class_name: string
+  component_items?: string[] | null
   image?: string
   image_webp?: string
   shop_image_webp?: string
@@ -139,10 +181,11 @@ function itemDescription(r: RawItem): string {
   return text.length > 260 ? text.slice(0, 257) + '...' : text
 }
 
-export function getItems(): Promise<Record<number, Item>> {
-  return cached('items3', async () => {
-    const raw = await fetchJson<RawItem[]>('/v1/assets/items')
+export function getItems(lang: Lang): Promise<Record<number, Item>> {
+  return cached(`items2:${lang}`, async () => {
+    const raw = await fetchJson<RawItem[]>(`/v1/assets/items?language=${API_LANGUAGE[lang]}`)
     const out: Record<number, Item> = {}
+    const idByClass = new Map(raw.map((r) => [r.class_name, r.id]))
     for (const r of raw) {
       if (r.type !== 'upgrade') continue
       const props: Record<string, number> = {}
@@ -160,6 +203,7 @@ export function getItems(): Promise<Record<number, Item>> {
         shopable: r.shopable !== false,
         desc: itemDescription(r),
         props,
+        components: (r.component_items ?? []).map((c) => idByClass.get(c)).filter((id): id is number => id !== undefined),
       }
     }
     return out
@@ -179,22 +223,24 @@ interface RawBuild {
       mod_categories: {
         name: string
         description: string | null
-        mods: { ability_id: number }[]
+        mods: { ability_id: number }[] | null // grupos só com texto vêm sem lista
       }[]
     }
   }
 }
 
 // A API usa chaves internas do jogo (#Citadel_HeroBuilds_EarlyGame, _Early, ...)
+// O cache guarda o nome original; o rótulo é escolhido na hora, no idioma atual.
 function categoryLabel(raw: string, index: number): string {
   const name = raw.trim()
   const m = name.match(/^#Citadel_HeroBuilds_(Early|Mid|Late)/i)
   if (m) {
     const phase = m[1].toLowerCase()
-    return phase === 'early' ? 'Início do jogo' : phase === 'mid' ? 'Meio do jogo' : 'Fim do jogo'
+    if (phase === 'early') return tr('Início do jogo', 'Early game')
+    return phase === 'mid' ? tr('Meio do jogo', 'Mid game') : tr('Fim do jogo', 'Late game')
   }
   // vazio ou abreviação sem sentido (ex.: "lr", "o")
-  if (name.length <= 2 || name.startsWith('#')) return `Grupo ${index + 1}`
+  if (name.length <= 2 || name.startsWith('#')) return `${tr('Grupo', 'Group')} ${index + 1}`
   return name
 }
 
@@ -212,23 +258,39 @@ function toBuild(r: RawBuild): Build {
     id: r.hero_build.hero_build_id,
     name: r.hero_build.name,
     description: usefulText(r.hero_build.description, ...cats.map((c) => c.name)),
-    weeklyFavorites: r.num_weekly_favorites ?? 0,
-    favorites: r.num_favorites ?? 0,
+    weeklyFavorites: r.num_weekly_favorites,
+    favorites: r.num_favorites,
     categories: cats
-      .map((c, i) => {
-        const name = categoryLabel(c.name, i)
-        return {
-          name,
-          description: usefulText(c.description, c.name, name),
-          itemIds: c.mods.map((m) => m.ability_id),
-        }
-      })
+      .map((c, i) => ({
+        name: c.name,
+        position: i,
+        description: usefulText(c.description, c.name),
+        itemIds: (c.mods ?? []).map((m) => m.ability_id),
+      }))
       .filter((c) => c.itemIds.length > 0),
   }
 }
 
+// Mostra só os números que a API informou
+export function popularity(build: Build): string {
+  const parts: string[] = []
+  if (build.favorites) parts.push(`${num(build.favorites)} ${tr('favoritos', 'favorites')}`)
+  if (build.weeklyFavorites) parts.push(`${num(build.weeklyFavorites)} ${tr('favoritos na semana', 'favorites this week')}`)
+  return parts.join(' · ') || tr('sem número de favoritos', 'no favorite count')
+}
+
+export function localizeBuild(build: Build): Build {
+  return {
+    ...build,
+    categories: build.categories.map((c, i) => {
+      const name = categoryLabel(c.name, c.position ?? i)
+      return { ...c, name, description: usefulText(c.description, name) }
+    }),
+  }
+}
+
 export function getBuilds(heroId: number): Promise<Build[]> {
-  return cached(`builds:${heroId}`, async () => {
+  return cached(`builds2:${heroId}`, async () => {
     // Heróis novos não têm favoritos semanais, então busco as duas listas e junto.
     const base = `/v1/builds?hero_id=${heroId}&language=0&only_latest=true&sort_direction=desc&limit=15`
     const [weekly, total] = await Promise.all([
@@ -238,13 +300,20 @@ export function getBuilds(heroId: number): Promise<Build[]> {
     const byId = new Map<number, Build>()
     for (const r of [...weekly, ...total]) {
       const b = toBuild(r)
-      if (b.categories.length > 0 && !byId.has(b.id)) byId.set(b.id, b)
+      if (b.categories.length === 0) continue
+      const seen = byId.get(b.id)
+      if (!seen) byId.set(b.id, b)
+      else {
+        // a mesma build veio nas duas listas: junta os números
+        seen.favorites ??= b.favorites
+        seen.weeklyFavorites ??= b.weeklyFavorites
+      }
     }
     const all = [...byId.values()].sort(
-      (a, b) => b.weeklyFavorites - a.weeklyFavorites || b.favorites - a.favorites,
+      (a, b) => (b.weeklyFavorites ?? 0) - (a.weeklyFavorites ?? 0) || (b.favorites ?? 0) - (a.favorites ?? 0),
     )
     // builds que ninguém favoritou costumam ser rascunhos; só as escondo se sobrar alguma boa
-    const liked = all.filter((b) => b.weeklyFavorites > 0 || b.favorites > 0)
+    const liked = all.filter((b) => (b.weeklyFavorites ?? 0) > 0 || (b.favorites ?? 0) > 0)
     return (liked.length > 0 ? liked : all).slice(0, 15)
   })
 }
@@ -310,9 +379,10 @@ export function getBuildOrder(
   items: Record<number, Item>,
   stats: ItemStat[],
 ): Promise<BuildOrder> {
-  return cached(`order:${hero.id}:${build.id}`, async () => {
+  return cached(`order:${getLang()}:${hero.id}:${build.id}`, async () => {
     const statById = new Map(stats.map((s) => [s.itemId, s]))
     const body = {
+      language: getLang(),
       heroName: hero.name,
       buildName: build.name,
       buildDescription: build.description,
@@ -320,7 +390,7 @@ export function getBuildOrder(
         name: c.name,
         description: c.description,
         items: c.itemIds
-          .filter((id) => items[id])
+          .filter((id) => items[id]?.shopable)
           .map((id) => {
             const it = items[id]
             const st = statById.get(id)
@@ -347,8 +417,11 @@ export function getBuildOrder(
       throw new Error(
         data.error ??
           (res.status === 404 || res.status === 502
-            ? 'Servidor da IA fora do ar. Rode "npm run server" em outro terminal.'
-            : `Erro ${res.status}`),
+            ? tr(
+                'Servidor da IA fora do ar. Rode "npm run server" em outro terminal.',
+                'The AI server is offline. Run "npm run server" in another terminal.',
+              )
+            : `${tr('Erro', 'Error')} ${res.status}`),
       )
     }
     return data

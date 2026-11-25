@@ -1,4 +1,6 @@
 import type { Build, BuildOrder, Item, ItemStat, OrderStep } from './api'
+import { dec, tr } from './i18n'
+import { isBuyable } from './shop'
 
 // Ordena os itens de uma build usando dados reais de partidas (grátis, sem IA).
 // Ideia: a hora média em que os jogadores compram cada item é um bom proxy da ordem de compra.
@@ -11,9 +13,16 @@ const SITUATIONAL =
   /situat|counter|optional|opcion|swap|replace|luxury|\bfun\b|misc|testing|bad lane|\bif\b|alternativ|as needed|\bwhen\b/i
 
 export function phaseFromName(name: string): number | null {
-  if (/early|in[ií]cio|\blane\b|start|opening/i.test(name)) return 0
-  if (/\bmid|core|meio/i.test(name)) return 1
-  if (/late|final|\bfim\b|luxury|peak|\bend\b/i.test(name)) return 2
+  // palavras que dizem a fase valem mais que as indiretas: "Late Game Core" é fim, não meio
+  const explicit = [/early|in[ií]cio/i, /\bmid|meio/i, /late(?!r)|final|\bfim\b|\bend\b/i]
+    .map((re, phase) => (re.test(name) ? phase : null))
+    .filter((p): p is number => p !== null)
+  if (explicit.length === 1) return explicit[0]
+  if (explicit.length > 1) return null // "Early-Mid", "Mid/Late": cada item vai pela hora de compra
+  if (/after\s*lan/i.test(name)) return 1
+  if (/\blane\b|laning|start|opening/i.test(name)) return 0
+  if (/core/i.test(name)) return 1
+  if (/luxury|peak/i.test(name)) return 2
   return null
 }
 
@@ -56,10 +65,9 @@ export function computeOrder(
 ): BuildOrder {
   const statById = new Map(stats.map((s) => [s.itemId, s]))
   const estimate = fitCostToTime(stats, items)
-  const lastCat = Math.max(1, build.categories.length - 1)
 
-  // Se o autor não separou a build em fases (grupos sem nome, "Grupo 1"...), não dá para confiar nos
-  // grupos: as fases passam a vir da hora média de compra (até 12 min / até 25 min / depois).
+  // A fase vem do nome do grupo do autor. Se o nome não diz a fase, ou se a hora real de compra a
+  // contradiz muito (início x fim), vale a hora média de compra (até 12 min / até 25 min / depois).
   const hasPhases = build.categories.filter((c) => phaseFromName(c.name) !== null).length >= 2
   const phaseByTime = (t: number) => (t < 720 ? 0 : t < 1500 ? 1 : 2)
 
@@ -67,15 +75,13 @@ export function computeOrder(
   const cands: Candidate[] = []
   let authorIdx = 0
 
-  build.categories.forEach((cat, ci) => {
+  build.categories.forEach((cat) => {
     const byName = phaseFromName(cat.name)
-    const byPosition = Math.min(2, Math.floor((ci / lastCat) * 3 - 1e-9))
-    const phase = byName ?? Math.max(0, byPosition)
     const situational = SITUATIONAL.test(cat.name) || SITUATIONAL.test(cat.description)
 
     for (const id of cat.itemIds) {
       const item = items[id]
-      if (!item || seen.has(id)) continue
+      if (!item || !isBuyable(items, id) || seen.has(id)) continue
       seen.add(id)
       const stat = statById.get(id)
       let time: number
@@ -90,7 +96,9 @@ export function computeOrder(
         time = authorIdx * 90
         source = 'author'
       }
-      cands.push({ id, phase: hasPhases ? phase : phaseByTime(time), situational, authorIdx: authorIdx++, time, source, stat })
+      const byTime = phaseByTime(time)
+      const phase = byName === null || Math.abs(byName - byTime) > 1 ? byTime : byName
+      cands.push({ id, phase, situational, authorIdx: authorIdx++, time, source, stat })
     }
   })
 
@@ -102,30 +110,64 @@ export function computeOrder(
       a.authorIdx - b.authorIdx,
   )
 
-  const steps: OrderStep[] = cands.map((c) => {
+  // Uma melhoria consome o item anterior: se a build tem os dois, o anterior precisa vir antes.
+  const candById = new Map(cands.map((c) => [c.id, c]))
+  const placed = new Set<number>()
+  const ordered: (Candidate & { neededFor?: number })[] = []
+  function place(c: Candidate, phase: number, neededFor?: number) {
+    if (placed.has(c.id)) return
+    placed.add(c.id)
+    const at = Math.min(c.phase, phase)
+    for (const part of items[c.id].components) {
+      const found = candById.get(part)
+      if (found) place(found, at, c.id)
+    }
+    // só marca quando a peça precisou ser adiantada
+    const moved = neededFor !== undefined && cands.indexOf(c) > cands.indexOf(candById.get(neededFor)!)
+    ordered.push({ ...c, phase: at, situational: moved ? false : c.situational, neededFor: moved ? neededFor : undefined })
+  }
+  for (const c of cands) place(c, c.phase)
+
+  const steps: OrderStep[] = ordered.map((c) => {
     let reason: string
     if (c.source === 'data' && c.stat) {
-      reason = `Comprado em média aos ${formatTime(c.stat.avgBuyTimeS)}`
-      if (c.stat.matches >= 200) reason += ` · ${(c.stat.winRate * 100).toFixed(0)}% de vitória`
+      const time = formatTime(c.stat.avgBuyTimeS)
+      reason = tr(`Comprado em média aos ${time}`, `Bought around ${time} on average`)
+      if (c.stat.matches >= 200) reason += ` · ${dec(c.stat.winRate * 100, 0)}% ${tr('de vitória', 'win rate')}`
     } else if (c.source === 'estimated') {
-      reason = `Sem dados de partida; hora estimada pelo custo (~${formatTime(c.time)})`
+      reason = tr(
+        `Sem dados de partida; hora estimada pelo custo (~${formatTime(c.time)})`,
+        `No match data; time estimated from cost (~${formatTime(c.time)})`,
+      )
     } else {
-      reason = 'Sem dados de partida; mantido na ordem do autor'
+      reason = tr('Sem dados de partida; mantido na ordem do autor', "No match data; kept in the author's order")
     }
-    if (c.situational) reason += ' · situacional (compre se precisar)'
+    if (c.situational) reason += tr(' · situacional (compre se precisar)', ' · situational (buy if needed)')
+    if (c.neededFor !== undefined)
+      reason += tr(` · adiantado porque vira ${items[c.neededFor].name}`, ` · moved up because it becomes ${items[c.neededFor].name}`)
     return { itemId: c.id, phase: PHASES[c.phase], reason, fromAi: true }
   })
 
   const withData = cands.filter((c) => c.source === 'data').length
   const situational = cands.filter((c) => c.situational).length
   const summary =
-    `Ordem calculada pela hora média em que os jogadores compram cada item nas partidas recentes ` +
-    `(${withData} de ${cands.length} itens com dados). ` +
+    tr(
+      `Ordem calculada pela hora média em que os jogadores compram cada item nas partidas recentes (${withData} de ${cands.length} itens com dados). `,
+      `Order based on the average time players buy each item in recent matches (${withData} of ${cands.length} items with data). `,
+    ) +
     (hasPhases
-      ? 'As fases seguem os grupos do autor. '
-      : 'O autor não separou a build por fase, então as fases vêm da hora média de compra. ') +
-    `Dentro de cada fase, os itens centrais vêm primeiro` +
-    (situational > 0 ? ` e os ${situational} situacionais ficam no fim dela.` : '.')
+      ? tr(
+          'As fases seguem os grupos do autor quando o nome indica a fase; nos outros casos, a hora média de compra. ',
+          "Phases follow the author's groups when the name indicates a phase; otherwise, the average purchase time. ",
+        )
+      : tr(
+          'O autor não separou a build por fase, então as fases vêm da hora média de compra. ',
+          "The author didn't split the build into phases, so phases come from the average purchase time. ",
+        )) +
+    tr('Dentro de cada fase, os itens centrais vêm primeiro', 'Within each phase, core items come first') +
+    (situational > 0
+      ? tr(` e os ${situational} situacionais ficam no fim dela.`, ` and the ${situational} situational ones go last.`)
+      : '.')
 
-  return { steps, summary, model: 'dados de partidas' }
+  return { steps, summary, model: tr('dados de partidas', 'match data') }
 }

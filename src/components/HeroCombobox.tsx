@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { ChevronsUpDown } from 'lucide-react'
-import type { Hero } from '@/api'
+import { normalize, type Hero } from '@/api'
+import { classLabel, tr } from '@/i18n'
 import { Button } from '@/components/ui/button'
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -51,14 +52,15 @@ export function HeroCombobox({
       </PopoverTrigger>
       <PopoverContent className="w-(--radix-popover-trigger-width) min-w-64 p-0" align="start">
         <Command>
-          <CommandInput placeholder="Buscar herói..." />
+          <CommandInput placeholder={tr('Buscar herói...', 'Search hero...')} />
           <CommandList>
-            <CommandEmpty>Nenhum herói encontrado.</CommandEmpty>
+            <CommandEmpty>{tr('Nenhum herói encontrado.', 'No heroes found.')}</CommandEmpty>
             <CommandGroup>
               {heroes.map((h) => (
                 <CommandItem
                   key={h.id}
-                  value={h.name}
+                  value={String(h.id)}
+                  keywords={[h.portugueseName, h.englishName, normalize(h.portugueseName)]}
                   onSelect={() => {
                     onSelect(h.id)
                     setOpen(false)
@@ -66,7 +68,7 @@ export function HeroCombobox({
                 >
                   <HeroAvatar hero={h} className="size-6" />
                   <span>{h.name}</span>
-                  <span className="ml-auto text-xs text-muted-foreground">{h.hero_type}</span>
+                  <span className="ml-auto text-xs text-muted-foreground">{classLabel(h.hero_type)}</span>
                 </CommandItem>
               ))}
             </CommandGroup>
